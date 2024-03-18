@@ -158,3 +158,117 @@ tf_vendored = repository_rule(
         "relpath": attr.string(),
     },
 )
+
+def _get_archive_name(url, archive_suffix = ".tar.xz"):
+    last_slash_index = url.rfind("/")
+    return url[last_slash_index + 1:-len(archive_suffix)]
+
+def _cuda_http_archive_impl(repository_ctx):
+    cuda_version = _get_env_var(repository_ctx, "TF_CUDA_VERSION")
+    archive_version = ""
+    if cuda_version == "12":
+        cuda_version = "12.3"
+    if cuda_version:
+        # Download archive only when GPU config is used.
+        arch_dict = {"amd64": "x86_64", "aarch64": "sbsa"}
+        arch = repository_ctx.os.arch
+        archive_arch_suffix = arch_dict[arch]
+        archive_version = repository_ctx.attr.version_dict[cuda_version]
+        sha256 = repository_ctx.attr.sha256_dict["{cuda_version}-{arch}".format(cuda_version = cuda_version, arch = arch)]
+
+        # The format of the url_template should be the following:
+        # https://developer.download.nvidia.com/compute/cuda/redist/cuda_nvtx/linux-{arch}/cuda_nvtx-linux-{arch}-{version}-archive.tar.xz
+        url = repository_ctx.attr.url_template.format(arch = archive_arch_suffix, version = archive_version)
+
+        archive_name = _get_archive_name(url)
+
+        repository_ctx.download(
+            url = tf_mirror_urls(url),
+            output = archive_name + ".tar.xz",
+            sha256 = sha256,
+        )
+        repository_ctx.extract(
+            archive = archive_name + ".tar.xz",
+            stripPrefix = archive_name,
+        )
+    if repository_ctx.attr.build_template:
+        version = archive_version.split(".")[0] if archive_version else ""
+        repository_ctx.file("version.txt", version)
+        repository_ctx.template(
+            "BUILD",
+            repository_ctx.attr.build_template,
+            {"%{version}": version},
+        )
+    else:
+        repository_ctx.file(
+            "BUILD",
+            repository_ctx.read(repository_ctx.attr.build_file),
+        )
+
+_cuda_http_archive = repository_rule(
+    implementation = _cuda_http_archive_impl,
+    attrs = {
+        "sha256_dict": attr.string_dict(mandatory = True),
+        "version_dict": attr.string_dict(mandatory = True),
+        "url_template": attr.string(mandatory = True),
+        "build_template": attr.label(),
+        "build_file": attr.label(),
+    },
+    environ = ["TF_CUDA_VERSION"],
+)
+
+def cuda_http_archive(name, sha256_dict, version_dict, url_template, **kwargs):
+    _cuda_http_archive(
+        name = name,
+        sha256_dict = sha256_dict,
+        url_template = url_template,
+        version_dict = version_dict,
+        **kwargs
+    )
+
+def _cuda_wheel_impl(repository_ctx):
+    cuda_version = _get_env_var(repository_ctx, "TF_CUDA_VERSION")
+    if cuda_version == "12":
+        cuda_version = "12.3"
+    if cuda_version:
+        # Download archive only when GPU config is used.
+        arch = repository_ctx.os.arch
+        dict_key = "{cuda_version}-{arch}".format(cuda_version = cuda_version, arch = arch)
+        sha256 = repository_ctx.attr.sha256_dict[dict_key]
+        url = repository_ctx.attr.url_dict[dict_key]
+
+        archive_name = _get_archive_name(url, archive_suffix = ".whl")
+
+        repository_ctx.download(
+            url = tf_mirror_urls(url),
+            output = archive_name + ".zip",
+            sha256 = sha256,
+        )
+        repository_ctx.extract(
+            archive = archive_name + ".zip",
+            stripPrefix = repository_ctx.attr.strip_prefix,
+        )
+
+    repository_ctx.file(
+        "BUILD",
+        repository_ctx.read(repository_ctx.attr.build_file),
+    )
+
+_cuda_wheel = repository_rule(
+    implementation = _cuda_wheel_impl,
+    attrs = {
+        "sha256_dict": attr.string_dict(mandatory = True),
+        "url_dict": attr.string_dict(mandatory = True),
+        "build_file": attr.label(),
+        "strip_prefix": attr.string(),
+    },
+    environ = ["TF_CUDA_VERSION"],
+)
+
+def cuda_wheel(name, sha256_dict, url_dict, **kwargs):
+    _cuda_wheel(
+        name = name,
+        sha256_dict = sha256_dict,
+        url_dict = url_dict,
+        **kwargs
+    )
