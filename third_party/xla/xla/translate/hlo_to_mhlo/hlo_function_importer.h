@@ -62,13 +62,12 @@ class HloFunctionImporter {
           function_map,
       mlir::Builder* builder, bool is_main);
 
-  // Imports the given hlo computation to the specified region. If
-  // 'flatten_region_arg_tuple' is true, then flatten the tuple-typed region
-  // argument(s) and return value(s).
+  // Imports the given hlo computation to the specified region.
+  //
+  // Flattens the tuple-typed region argument(s) and return value(s).
   static Status ImportAsRegion(const HloComputation& computation,
                                mlir::SymbolTable& symbol_table,
-                               mlir::Region* region, mlir::Builder* builder,
-                               bool flatten_region_arg_tuple = false);
+                               mlir::Region* region, mlir::Builder* builder);
 
   // Imports the given computation to the given place specified by `builder`.
   // `arguments` contains values for all parameters.
@@ -133,9 +132,10 @@ class HloFunctionImporter {
   //          resp. flatten and create tuples in the exact same order.
   //       2. `flatten_values`, initially storing the flattened values, will be
   //          mutated to a 0-length array by the end of function invocation.
-  static mlir::Value CreateTupleValue(
-      mlir::OpBuilder* func_builder, mlir::Location loc,
-      llvm::MutableArrayRef<mlir::Value>& flatten_values, mlir::Type type);
+  static mlir::Value CreateTupleValue(mlir::OpBuilder* func_builder,
+                                      mlir::Location loc,
+                                      mlir::ValueRange& flatten_values,
+                                      mlir::Type type);
 
  private:
   HloFunctionImporter(mlir::SymbolTable& symbol_table,
@@ -158,13 +158,13 @@ class HloFunctionImporter {
       const HloComputation& computation, bool is_main);
 
   // Imports the given computation in the specified region.
-  Status ImportAsRegion(const HloComputation& computation, mlir::Region* region,
-                        bool flatten_region_arg_tuple = false);
+  Status ImportAsRegion(const HloComputation& computation,
+                        mlir::Region* region);
 
   // Imports instructions from the given computation in the specified block.
   // Assumes that the block already has correct arguments populated.
   Status ImportInstructions(const HloComputation& computation,
-                            mlir::Block* block, bool flatten_region_arg_tuple);
+                            mlir::Block* block);
   absl::StatusOr<mlir::Value> ImportInstructionsImpl(
       const HloComputation& computation,
       const llvm::SmallVectorImpl<mlir::Value>& arguments,

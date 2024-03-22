@@ -34,14 +34,9 @@ ENTRY %foo (arg0.1: s64[]) -> s64[] {
 //    loop are NOT modified when imported as individual functions.
 // ----------------------
 // CHECK-LABEL: func private @region_body1
-// CHECK-SAME:    (%[[ARG_0:.*]]: tuple<tensor<i32>, tensor<i32>, tensor<f32>, tensor<f32>>) -> tuple<tensor<i32>, tensor<i32>, tensor<f32>, tensor<f32>>
-// CHECK-NEXT:   %[[GTE_0:.*]] = mhlo.get_tuple_element %[[ARG_0]][0]
-// CHECK-NEXT:   %[[GTE_1:.*]] = mhlo.get_tuple_element %[[ARG_0]][1]
-// CHECK-NEXT:   %[[GTE_2:.*]] = mhlo.get_tuple_element %[[ARG_0]][2]
-// CHECK-NEXT:   %[[GTE_3:.*]] = mhlo.get_tuple_element %[[ARG_0]][3]
-// CHECK-NEXT:   %[[ADD:.*]] = mhlo.add %[[GTE_2]], %[[GTE_3]]
-// CHECK-NEXT:   %[[RES:.*]] = mhlo.tuple %[[GTE_0]], %[[GTE_1]], %[[GTE_2]], %[[ADD]]
-// CHECK-NEXT:   return %[[RES]] : tuple<tensor<i32>, tensor<i32>, tensor<f32>, tensor<f32>>
+// CHECK-SAME:    (%[[ARG_0:.*]]: tensor<i32>, %[[ARG_1:.*]]: tensor<i32>, %[[ARG_2:.*]]: tensor<f32>, %[[ARG_3:.*]]: tensor<f32>) -> (tensor<i32>, tensor<i32>, tensor<f32>, tensor<f32>)
+// CHECK-NEXT:   %[[ADD:.*]] = mhlo.add %[[ARG_2]], %[[ARG_3]]
+// CHECK-NEXT:   return %[[ARG_0]], %[[ARG_1]], %[[ARG_2]], %[[ADD]]
 
 %region_body1 (Arg_0.7: (s32[], s32[], f32[], f32[])) -> (s32[], s32[], f32[], f32[]) {
   %Arg_0.7 = (s32[], s32[], f32[], f32[]) parameter(0)
@@ -54,11 +49,9 @@ ENTRY %foo (arg0.1: s64[]) -> s64[] {
 }
 
 // CHECK-LABEL: func private @region_cond1
-// CHECK-SAME:    (%[[ARG_0:.*]]: tuple<tensor<i32>, tensor<i32>, tensor<f32>, tensor<f32>>) -> tensor<i1>
+// CHECK-SAME:    (%[[ARG_0:.*]]: tensor<i32>, %[[ARG_1:.*]]: tensor<i32>, %[[ARG_2:.*]]: tensor<f32>, %[[ARG_3:.*]]: tensor<f32>) -> tensor<i1>
 // CHECK-NEXT:   %[[CST:.*]] = mhlo.constant
-// CHECK-NEXT:   %[[GTE_0:.*]] = mhlo.get_tuple_element %[[ARG_0]][0]
-// CHECK-NEXT:   %[[GTE_1:.*]] = mhlo.get_tuple_element %[[ARG_0]][1]
-// CHECK-NEXT:   %[[CMP:.*]] = mhlo.compare LT, %[[GTE_0]], %[[GTE_1]]
+// CHECK-NEXT:   %[[CMP:.*]] = mhlo.compare LT, %[[ARG_0]], %[[ARG_1]]
 // CHECK-NEXT"   return %[[CMP]] : tensor<i1>
 
 %region_cond1 (Arg_0.15: (s32[], s32[], f32[], f32[])) -> pred[] {
@@ -267,23 +260,15 @@ ENTRY %foo (arg0.1: s64[]) -> s64[] {
 }
 
 // CHECK-LABEL: func private @test_4
-// CHECK-SAME:    (%[[ARG_0:.*]]: tuple<tensor<i32>, tuple<tensor<i32>, tuple<tensor<i32>>>>) -> tuple<tensor<i32>, tuple<tensor<i32>, tuple<tensor<i32>>>>
-// CHECK-NEXT:    %[[GTE_0:.*]] = mhlo.get_tuple_element %arg0[0] : (tuple<tensor<i32>, tuple<tensor<i32>, tuple<tensor<i32>>>>) -> tensor<i32>
-// CHECK-NEXT:    %[[GTE_1:.*]] = mhlo.get_tuple_element %arg0[1] : (tuple<tensor<i32>, tuple<tensor<i32>, tuple<tensor<i32>>>>) -> tuple<tensor<i32>, tuple<tensor<i32>>>
-// CHECK-NEXT:    %[[GTE_2:.*]] = mhlo.get_tuple_element %1[0] : (tuple<tensor<i32>, tuple<tensor<i32>>>) -> tensor<i32>
-// CHECK-NEXT:    %[[GTE_3:.*]] = mhlo.get_tuple_element %1[1] : (tuple<tensor<i32>, tuple<tensor<i32>>>) -> tuple<tensor<i32>>
-// CHECK-NEXT:    %[[GTE_4:.*]] = mhlo.get_tuple_element %3[0] : (tuple<tensor<i32>>) -> tensor<i32>
-// CHECK-NEXT:    %[[WHILE:.*]]:3 = mhlo.while(%[[ITER_ARG1:.*]] = %[[GTE_0]], %[[ITER_ARG2:.*]] = %[[GTE_2]], %[[ITER_ARG3:.*]] = %[[GTE_4]])
+// CHECK-SAME:    (%[[ARG_0:.*]]: tensor<i32>, %[[ARG_1:.*]]: tensor<i32>, %[[ARG_2:.*]]: tensor<i32>) -> (tensor<i32>, tensor<i32>, tensor<i32>)
+// CHECK-NEXT:    %[[WHILE:.*]]:3 = mhlo.while(%[[ITER_ARG1:.*]] = %[[ARG_0]], %[[ITER_ARG2:.*]] = %[[ARG_1]], %[[ITER_ARG3:.*]] = %[[ARG_2]])
 // CHECK:           %[[CMP:.*]] = mhlo.compare LT, %[[ITER_ARG1]], %[[ITER_ARG3]] : (tensor<i32>, tensor<i32>) -> tensor<i1>
 // CHECK-NEXT:      mhlo.return %[[CMP]]
 // CHECK-NEXT:    } do {
 // CHECK-NEXT:      %[[ADD:.*]] = mhlo.add %[[ITER_ARG1]], %[[ITER_ARG2]] : tensor<i32>
 // CHECK-NEXT:      mhlo.return %[[ADD]], %[[ITER_ARG2]], %[[ITER_ARG3]] : tensor<i32>, tensor<i32>, tensor<i32>
 
-// CHECK:         %[[TUPLE_6:.*]] = mhlo.tuple %[[WHILE]]#2 : tuple<tensor<i32>>
-// CHECK:         %[[TUPLE_7:.*]] = mhlo.tuple %[[WHILE]]#1, %[[TUPLE_6]] : tuple<tensor<i32>, tuple<tensor<i32>>>
-// CHECK:         %[[TUPLE_8:.*]] = mhlo.tuple %[[WHILE]]#0, %[[TUPLE_7]] {xla_shape = "(s32[], (s32[], (s32[])))"} : tuple<tensor<i32>, tuple<tensor<i32>, tuple<tensor<i32>>>>
-// CHECK:          return %[[TUPLE_8]] : tuple<tensor<i32>, tuple<tensor<i32>, tuple<tensor<i32>>>>
+// CHECK:         return %[[WHILE]]#0, %[[WHILE]]#1, %[[WHILE]]#2
 
 %test_4 (Arg_0: (s32[], (s32[], (s32[])))) -> (s32[], (s32[], (s32[]))) {
   %Arg_0 = (s32[], (s32[], (s32[]))) parameter(0)

@@ -19,6 +19,7 @@ limitations under the License.
 #include <memory>
 #include <optional>
 
+#include "absl/container/flat_hash_map.h"
 #include "absl/types/span.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
@@ -33,6 +34,7 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/mlir_hlo/mhlo/IR/hlo_ops.h"
+#include "xla/shape_util.h"
 #include "xla/status.h"
 #include "xla/translate/hlo_to_mhlo/hlo_function_importer.h"
 #include "xla/xla.pb.h"
@@ -59,16 +61,28 @@ constexpr char kFrontendAttributesAttr[] = "mhlo.frontend_attributes";
 
 mlir::ArrayAttr ConvertCrossProgramPrefetches(
     const absl::Span<const HloModule::CrossProgramPrefetchInfo> prefetches,
-    mlir::Builder* builder) {
+    const HloComputation& entryComputation, mlir::Builder* builder) {
+  llvm::SmallVector<absl::flat_hash_map<ShapeIndex, int64_t>>
+      original_param_index_to_flattened_arg_index;
+  int64_t arg_index = 0;
+  for (HloInstruction* param_instruction :
+       entryComputation.parameter_instructions()) {
+    auto& param_map =
+        original_param_index_to_flattened_arg_index.emplace_back();
+    ShapeUtil::ForEachLeafShape(param_instruction->shape(),
+                                [&](const Shape&, const ShapeIndex& index) {
+                                  param_map[index] = arg_index++;
+                                });
+  }
   llvm::SmallVector<mlir::Attribute, 4> shapes;
   for (auto [parameter, index, alt_memory_offset] : prefetches) {
-    llvm::SmallVector<int64_t, 4> dims;
-    for (auto dim : index) dims.push_back(dim);
     std::optional<int64_t> offset =
         alt_memory_offset ? std::optional<int64_t>(*alt_memory_offset)
                           : std::nullopt;
     shapes.push_back(mlir::mhlo::CrossProgramPrefetchAttr::get(
-        builder->getContext(), parameter, dims, offset));
+        builder->getContext(),
+        original_param_index_to_flattened_arg_index[parameter][index],
+        /*indices=*/{}, offset));
   }
 
   return mlir::ArrayAttr::get(builder->getContext(), shapes);
@@ -80,7 +94,8 @@ Status HloModuleImporter::Import(const HloModule& hlo_module) {
   module.setName(hlo_module.name());
   module->setAttr("mhlo.cross_program_prefetches",
                   ConvertCrossProgramPrefetches(
-                      hlo_module.CrossProgramPrefetches(), &builder_));
+                      hlo_module.CrossProgramPrefetches(),
+                      *hlo_module.entry_computation(), &builder_));
   module->setAttr(
       "mhlo.is_dynamic",
       mlir::BoolAttr::get(builder_.getContext(), hlo_module.is_dynamic()));
@@ -94,6 +109,7 @@ Status HloModuleImporter::Import(const HloModule& hlo_module) {
         ConvertSharding(hlo_module.spmd_output_sharding(), &builder_));
   }
 
+  // DO NOT SUBMIT - need to flatten?
   if (hlo_module.has_spmd_parameters_shardings()) {
     llvm::SmallVector<mlir::Attribute> parameter_shardings;
     for (const auto& sharding : hlo_module.spmd_parameters_shardings()) {
