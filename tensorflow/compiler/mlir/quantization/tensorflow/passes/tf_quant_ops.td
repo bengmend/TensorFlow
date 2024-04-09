@@ -61,7 +61,11 @@ def TF_CustomAggregatorOp : TF_Op<"CustomAggregator", [Pure]> {
   let arguments = (ins
     TensorOf<[TF_Float32]>:$input,
 
-    StrAttr:$id
+    StrAttr:$id,
+    I32Attr:$calibration_method,
+    I32Attr:$initial_num_bins,
+    F32Attr:$min_percentile,
+    F32Attr:$max_percentile
   );
 
   let results = (outs
