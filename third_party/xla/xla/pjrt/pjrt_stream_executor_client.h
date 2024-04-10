@@ -723,7 +723,7 @@ class PjRtStreamExecutorBuffer : public PjRtBuffer {
       std::vector<RemoteSendCallback> callbacks,
       const ScatterDetails& scatter_details) override;
 
-  PjRtFuture<Status> GetReadyFuture() override;
+  PjRtFuture<> GetReadyFuture() override;
 
   bool IsOnCpu() const override;
 
