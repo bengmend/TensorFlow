@@ -16,7 +16,6 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-#include "llvm/Support/Casting.h"
 #include "xla/python/ifrt/plugin_program.h"
 #include "xla/python/ifrt/serdes.h"
 #include "xla/python/ifrt/serdes.pb.h"
@@ -28,28 +27,22 @@ namespace xla {
 namespace ifrt {
 namespace {
 
-using ::testing::IsNull;
-using ::testing::Not;
-
 TEST(PluginProgramSerDesTest, RoundTrip) {
   PluginProgram orig;
   orig.data = "foo";
   TF_ASSERT_OK_AND_ASSIGN(Serialized serialized, Serialize(orig));
-  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<Serializable> deserialized,
-                          Deserialize(serialized, /*options=*/nullptr));
+  TF_ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<PluginProgram> deserialized_program,
+      Deserialize<PluginProgram>(serialized, /*options=*/nullptr));
 
-  auto deserialized_program = llvm::dyn_cast<PluginProgram>(deserialized);
-  ASSERT_THAT(deserialized_program, Not(IsNull()));
   EXPECT_EQ(deserialized_program->data, "foo");
 }
 
 TEST(PluginCompileOptionsSerDesTest, RoundTrip) {
   PluginCompileOptions orig;
   TF_ASSERT_OK_AND_ASSIGN(Serialized serialized, Serialize(orig));
-  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<Serializable> deserialized,
-                          Deserialize(serialized, /*options=*/nullptr));
-  ASSERT_THAT(llvm::dyn_cast<PluginCompileOptions>(deserialized),
-              Not(IsNull()));
+  EXPECT_OK(Deserialize<PluginCompileOptions>(serialized, /*options=*/nullptr)
+                .status());
 }
 
 }  // namespace

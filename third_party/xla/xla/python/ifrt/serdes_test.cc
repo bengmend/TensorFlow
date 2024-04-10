@@ -17,9 +17,13 @@ limitations under the License.
 
 #include <memory>
 #include <string>
+#include <utility>
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "llvm/Support/Casting.h"
@@ -35,7 +39,11 @@ namespace {
 
 using ::tsl::testing::StatusIs;
 
+struct TestNumberDeserializeOptions;
+
 struct TestNumber : llvm::RTTIExtends<TestNumber, Serializable> {
+  using DeserializeOptions = TestNumberDeserializeOptions;
+
   int number;
 
   explicit TestNumber(int number) : number(number) {}
@@ -43,7 +51,7 @@ struct TestNumber : llvm::RTTIExtends<TestNumber, Serializable> {
   static char ID;  // NOLINT
 };
 
-char TestNumber::ID = 0;  // NOLINT
+char TestNumber::ID __attribute__((unused)) = 0;
 
 struct TestNumberDeserializeOptions
     : llvm::RTTIExtends<TestNumberDeserializeOptions, DeserializeOptions> {
@@ -52,7 +60,7 @@ struct TestNumberDeserializeOptions
   static char ID;  // NOLINT
 };
 
-char TestNumberDeserializeOptions::ID = 0;  // NOLINT
+char TestNumberDeserializeOptions::ID __attribute__((unused)) = 0;
 
 class TestNumberSerDes : public llvm::RTTIExtends<TestNumberSerDes, SerDes> {
  public:
@@ -84,7 +92,7 @@ class TestNumberSerDes : public llvm::RTTIExtends<TestNumberSerDes, SerDes> {
   static char ID;  // NOLINT
 };
 
-char TestNumberSerDes::ID = 0;  // NOLINT
+char TestNumberSerDes::ID __attribute__((unused)) = 0;
 
 class TestNumberTest : public testing::Test {
  protected:
@@ -96,9 +104,10 @@ class TestNumberTest : public testing::Test {
 TEST_F(TestNumberTest, RoundTrip) {
   auto obj = std::make_unique<TestNumber>(1234);
   TF_ASSERT_OK_AND_ASSIGN(Serialized serialized, Serialize(*obj));
-  TF_ASSERT_OK_AND_ASSIGN(auto deserialized,
-                          Deserialize(serialized, /*options=*/nullptr));
-  EXPECT_EQ(obj->number, llvm::cast<TestNumber>(*deserialized).number);
+  TF_ASSERT_OK_AND_ASSIGN(
+      auto deserialized,
+      Deserialize<TestNumber>(serialized, /*options=*/nullptr));
+  EXPECT_EQ(obj->number, deserialized->number);
 }
 
 TEST_F(TestNumberTest, WithOptions) {
@@ -107,8 +116,18 @@ TEST_F(TestNumberTest, WithOptions) {
 
   auto options = std::make_unique<TestNumberDeserializeOptions>();
   options->injected_failure = absl::InternalError("injected failure");
-  EXPECT_THAT(Deserialize(serialized, std::move(options)),
+  EXPECT_THAT(Deserialize<TestNumber>(serialized, std::move(options)),
               StatusIs(absl::StatusCode::kInternal, "injected failure"));
+}
+
+TEST_F(TestNumberTest, InvalidOptions) {
+  auto obj = std::make_unique<TestNumber>(1234);
+  TF_ASSERT_OK_AND_ASSIGN(Serialized serialized, Serialize(*obj));
+
+  auto invalid_options = std::make_unique<DeserializeOptions>();
+  EXPECT_THAT(Deserialize<TestNumber>(serialized, std::move(invalid_options)),
+              StatusIs(absl::StatusCode::kInvalidArgument,
+                       "Unexpected DeserializeOptions type"));
 }
 
 }  // namespace

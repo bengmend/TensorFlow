@@ -25,6 +25,8 @@ limitations under the License.
 namespace xla {
 namespace ifrt {
 
+struct PluginCompileOptions;
+
 // `PluginProgram` is a subclass of `xla::ifrt::Program` used mainly with
 // the IFRT proxy as of Apr 2024, and facilitates generic RPCs from the IFRT
 // frontend (on the proxy-client) to the IFRT backend (on the proxy-server). A
@@ -39,6 +41,8 @@ namespace ifrt {
 // model'.
 struct PluginProgram
     : public llvm::RTTIExtends<PluginProgram, xla::ifrt::Program> {
+  using DeserializeOptions = PluginCompileOptions;
+
   std::string data;
   static char ID;  // NOLINT
 };
