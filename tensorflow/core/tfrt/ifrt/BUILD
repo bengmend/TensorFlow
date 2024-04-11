@@ -188,7 +188,6 @@ cc_library(
         "@com_google_absl//absl/types:span",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:statusor",
-        "@local_xla//xla:shape_util",
         "@local_xla//xla:xla_data_proto_cc",
         "@local_xla//xla/python/ifrt",
         "@local_xla//xla/python/pjrt_ifrt",
@@ -204,7 +203,11 @@ cc_library(
         "sharding_utils.h",
     ],
     deps = [
+        ":ifrt_config_proto_cc",
+        ":ifrt_loaded_variable_registry",
+        ":ifrt_restore_tensor_registry",
         ":ifrt_tensor_utils",
+        "//tensorflow/compiler/mlir/tfrt/transforms/ifrt:ifrt_types",
         "//tensorflow/core:framework",
         "//tensorflow/core:protos_all_cc",
         "//tensorflow/core/platform:status",
@@ -222,10 +225,10 @@ cc_library(
         "@local_tsl//tsl/platform:env",
         "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:statusor",
-        "@local_xla//xla:executable_run_options",
         "@local_xla//xla/hlo/ir:hlo",
         "@local_xla//xla/python/ifrt",
         "@local_xla//xla/python/pjrt_ifrt:xla_ifrt",
+        "@tf_runtime//:hostcontext",
     ],
 )
 
@@ -296,13 +299,18 @@ tf_cc_test(
     srcs = ["sharding_utils_test.cc"],
     tags = ["no_oss"],
     deps = [
+        ":ifrt_config_proto_cc",
+        ":ifrt_loaded_variable_registry",
+        ":ifrt_restore_tensor_registry",
         ":ifrt_tensor_utils",
         ":sharding_utils",
         "//tensorflow/core:framework",
         "//tensorflow/core:test",
         "//tensorflow/core/framework:tensor_matcher",
         "//tensorflow/core/framework:tensor_testutil",
+        "//tensorflow/core/framework:types_proto_cc",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",
@@ -316,6 +324,7 @@ tf_cc_test(
         "@local_xla//xla/python/ifrt:test_util",
         "@local_xla//xla/python/pjrt_ifrt:tfrt_cpu_client_test_lib",
         "@local_xla//xla/python/pjrt_ifrt:xla_ifrt",
+        "@tf_runtime//:hostcontext",
     ],
 )
 

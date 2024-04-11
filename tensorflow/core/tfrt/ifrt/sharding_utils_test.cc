@@ -22,21 +22,28 @@ limitations under the License.
 
 #include <gtest/gtest.h>
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/types/span.h"
 #include "xla/hlo/ir/hlo_sharding.h"
 #include "xla/python/ifrt/array.h"
 #include "xla/python/ifrt/client.h"
 #include "xla/python/ifrt/device.h"
+#include "xla/python/ifrt/future.h"
 #include "xla/python/ifrt/shape.h"
 #include "xla/python/ifrt/sharding.h"
 #include "xla/python/ifrt/test_util.h"
 #include "xla/python/pjrt_ifrt/xla_sharding.h"
 #include "xla/xla_data.pb.h"
+#include "tensorflow/core/framework/resource_handle.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_matcher.h"
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/framework/tensor_testutil.h"
+#include "tensorflow/core/framework/types.pb.h"
+#include "tensorflow/core/tfrt/ifrt/ifrt_config.pb.h"
+#include "tensorflow/core/tfrt/ifrt/ifrt_loaded_variable_registry.h"
+#include "tensorflow/core/tfrt/ifrt/ifrt_restore_tensor_registry.h"
 #include "tensorflow/core/tfrt/ifrt/ifrt_tensor_utils.h"
 #include "tsl/concurrency/ref_count.h"
 #include "tsl/lib/core/status_test_util.h"
@@ -45,6 +52,7 @@ limitations under the License.
 #include "tsl/platform/statusor.h"
 #include "tsl/platform/test.h"
 #include "tsl/platform/threadpool.h"
+#include "tfrt/host_context/concurrent_work_queue.h"  // from @tf_runtime
 
 namespace tensorflow {
 namespace ifrt_serving {
@@ -553,6 +561,107 @@ TEST(ShardingUtilsTest, MismatchRank) {
               StatusIs(absl::StatusCode::kInvalidArgument,
                        "shape must have 2 dimensions, but has 3 dimensions: "
                        "shape=[2,1,2], sharding={devices=[2,1]<=[2]}"));
+}
+
+TEST(ShardingUtilsTest, ShardTensorToIfrtLoadedVariableNotFoundWrongName) {
+  auto input_tensor =
+      test::AsTensor<int32_t>({1, 2, 3, 4}, TensorShape({2, 2}));
+
+  Tensor variable_handle(DT_RESOURCE, TensorShape({}));
+  ResourceHandle resource_handle;
+  resource_handle.set_name("var_x");
+  resource_handle.set_dtypes_and_shapes({{
+      .dtype = DT_INT32,
+      .shape = TensorShape({2, 2}),
+  }});
+  variable_handle.flat<ResourceHandle>()(0) = std::move(resource_handle);
+
+  IfrtRestoreTensorRegistry restored_tensor_registry;
+  TF_ASSERT_OK_AND_ASSIGN(std::shared_ptr<xla::ifrt::Client> client,
+                          xla::ifrt::test_util::GetClient());
+  constexpr int kMaxParallelism = 16;
+  tsl::thread::ThreadPool thread_pool(tsl::Env::Default(), tsl::ThreadOptions(),
+                                      "Resharding", kMaxParallelism);
+  IfrtLoadedVariableRegistry loaded_variable_registry;
+  auto restore_work_queue = tfrt::CreateMultiThreadedWorkQueue(
+      /*num_threads=*/4, /*num_blocking_threads=*/4);
+
+  VariableDeviceShardingConfigProto sharding_config;
+  sharding_config.add_device_ids(0);
+
+  auto promise =
+      xla::ifrt::Future<absl::StatusOr<tensorflow::Tensor>>::CreatePromise();
+  auto future = xla::ifrt::Future<absl::StatusOr<tensorflow::Tensor>>(promise);
+  TF_ASSERT_OK(
+      restored_tensor_registry.TryRegister("var_x_wrong", std::move(future)));
+  promise.Set(input_tensor);
+  TF_ASSERT_OK(LoadRestoredTensorAsIfrtLoadedVariable(
+      variable_handle, client, thread_pool, restored_tensor_registry,
+      loaded_variable_registry, restore_work_queue.get(), sharding_config));
+  TF_ASSERT_OK_AND_ASSIGN(
+      auto v,
+      loaded_variable_registry.GetLoadedVariable(GetRuntimeNameFromVarHandle(
+          variable_handle.scalar<ResourceHandle>()())));
+  EXPECT_THAT(v.array.Await().status(), StatusIs(absl::StatusCode::kNotFound));
+}
+
+TEST(ShardingUtilsTest, ShardTensorToIfrtLoadedVariableSucceed) {
+  auto input_tensor =
+      test::AsTensor<int32_t>({1, 2, 3, 4}, TensorShape({2, 2}));
+
+  Tensor variable_handle(DT_RESOURCE, TensorShape({}));
+  ResourceHandle resource_handle;
+  resource_handle.set_name("var_x");
+  resource_handle.set_dtypes_and_shapes({{
+      .dtype = DT_INT32,
+      .shape = TensorShape({2, 2}),
+  }});
+  variable_handle.flat<ResourceHandle>()(0) = std::move(resource_handle);
+
+  IfrtRestoreTensorRegistry restored_tensor_registry;
+  TF_ASSERT_OK_AND_ASSIGN(std::shared_ptr<xla::ifrt::Client> client,
+                          xla::ifrt::test_util::GetClient());
+  constexpr int kMaxParallelism = 16;
+  tsl::thread::ThreadPool thread_pool(tsl::Env::Default(), tsl::ThreadOptions(),
+                                      "Resharding", kMaxParallelism);
+  IfrtLoadedVariableRegistry loaded_variable_registry;
+  auto restore_work_queue = tfrt::CreateMultiThreadedWorkQueue(
+      /*num_threads=*/4, /*num_blocking_threads=*/4);
+
+  VariableDeviceShardingConfigProto sharding_config;
+  sharding_config.add_device_ids(0);
+
+  auto promise =
+      xla::ifrt::Future<absl::StatusOr<tensorflow::Tensor>>::CreatePromise();
+  auto future = xla::ifrt::Future<absl::StatusOr<tensorflow::Tensor>>(promise);
+  TF_ASSERT_OK(restored_tensor_registry.TryRegister(
+      GetRuntimeNameFromVarHandle(variable_handle.scalar<ResourceHandle>()()),
+      std::move(future)));
+  TF_ASSERT_OK(LoadRestoredTensorAsIfrtLoadedVariable(
+      variable_handle, client, thread_pool, restored_tensor_registry,
+      loaded_variable_registry, restore_work_queue.get(), sharding_config));
+  promise.Set(input_tensor);
+  TF_ASSERT_OK_AND_ASSIGN(
+      auto v,
+      loaded_variable_registry.GetLoadedVariable(GetRuntimeNameFromVarHandle(
+          variable_handle.scalar<ResourceHandle>()())));
+  TF_ASSERT_OK_AND_ASSIGN(auto assembled_array, v.array.Await());
+
+  EXPECT_TRUE(v.dtype_and_shape.shape.IsSameSize(TensorShape({2, 2})));
+  EXPECT_EQ(v.dtype_and_shape.dtype, DT_INT32);
+  TF_ASSERT_OK_AND_ASSIGN(auto disassembled_arrays,
+                          assembled_array->DisassembleIntoSingleDeviceArrays(
+                              xla::ifrt::ArrayCopySemantics::kAlwaysCopy));
+  ASSERT_EQ(disassembled_arrays.size(), 1);
+  for (int i = 0; i < disassembled_arrays.size(); ++i) {
+    tensorflow::Tensor host_tensor(input_tensor.dtype(), input_tensor.shape());
+    TF_ASSERT_OK(
+        disassembled_arrays[i]
+            ->CopyToHostBuffer(host_tensor.data(), /*byte_strides=*/{},
+                               xla::ifrt::ArrayCopySemantics::kAlwaysCopy)
+            .Await());
+    EXPECT_THAT(host_tensor, TensorEq(input_tensor));
+  }
 }
 
 }  // namespace
