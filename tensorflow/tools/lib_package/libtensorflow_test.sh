@@ -39,7 +39,7 @@ mkdir tensorflow
 ${TAR} -xzf ${TARFILE} -Ctensorflow
 
 # Compile the test .c file. Assumes with_framework_lib=True.
-${CC} ${CFILE} -Itensorflow/include -Itensorflow/include/external/local_tsl\
+${CC} ${CFILE} -Itensorflow/include -Itensorflow/include/external/local_xla\
   -Ltensorflow/lib -ltensorflow_framework -ltensorflow -oa.out
 
 # Execute it, with the shared library available.
