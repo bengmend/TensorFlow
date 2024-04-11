@@ -550,6 +550,50 @@ TEST_F(ConversionTest, CompilationCachingSettings) {
   EXPECT_EQ(output_settings.model_token(), "model");
 }
 
+TEST_F(ConversionTest, MtkNeuronSettings) {
+  settings_.tflite_settings = std::make_unique<TFLiteSettingsT>();
+  settings_.tflite_settings->mtk_neuron_settings =
+      std::make_unique<MtkNeuronSettingsT>();
+  MtkNeuronSettingsT* input_settings =
+      settings_.tflite_settings->mtk_neuron_settings.get();
+
+  input_settings->execution_preference =
+      MtkNeuronSettings_::ExecutionPreference_PREFERENCE_UNDEFINED;
+  input_settings->execution_priority =
+      MtkNeuronSettings_::ExecutionPriority_PRIORITY_MEDIUM;
+  input_settings->optimization_hint =
+      MtkNeuronSettings_::OptimizationHint_OPTIMIZATION_LOW_LATENCY |
+      MtkNeuronSettings_::OptimizationHint_OPTIMIZATION_BATCH_PROCESSOR;
+  input_settings->operation_check_mode =
+      MtkNeuronSettings_::OperationCheckMode_PER_NODE_OPERATION_CHECK;
+  input_settings->allow_fp16 = true;
+  input_settings->use_ahwb = false;
+  input_settings->use_cacheable_buffer = true;
+  input_settings->compile_options = "TEST_COMPILE_OPTIONS";
+  input_settings->accelerator_name = "TEST_ACCELERATOR_NAME";
+  input_settings->neuron_config_path = "TEST_NEURON_CONFIG_PATH";
+
+  const proto::ComputeSettings compute = ConvertFromFlatbuffer(settings_);
+  const proto::MtkNeuronSettings& output_settings =
+      compute.tflite_settings().mtk_neuron_settings();
+
+  EXPECT_EQ(output_settings.execution_preference(),
+            proto::MtkNeuronSettings::PREFERENCE_UNDEFINED);
+  EXPECT_EQ(output_settings.execution_priority(),
+            proto::MtkNeuronSettings::PRIORITY_MEDIUM);
+  EXPECT_EQ(output_settings.optimization_hint(),
+            proto::MtkNeuronSettings::OPTIMIZATION_LOW_LATENCY |
+                proto::MtkNeuronSettings::OPTIMIZATION_BATCH_PROCESSOR);
+  EXPECT_EQ(output_settings.operation_check_mode(),
+            proto::MtkNeuronSettings::PER_NODE_OPERATION_CHECK);
+  EXPECT_TRUE(output_settings.allow_fp16());
+  EXPECT_FALSE(output_settings.use_ahwb());
+  EXPECT_TRUE(output_settings.use_cacheable_buffer());
+  EXPECT_EQ(output_settings.compile_options(), "TEST_COMPILE_OPTIONS");
+  EXPECT_EQ(output_settings.accelerator_name(), "TEST_ACCELERATOR_NAME");
+  EXPECT_EQ(output_settings.neuron_config_path(), "TEST_NEURON_CONFIG_PATH");
+}
+
 TEST_F(ConversionTest, MiniBenchmarkSettings) {
   settings_.tflite_settings = std::make_unique<TFLiteSettingsT>();
   settings_.tflite_settings->cpu_settings = std::make_unique<CPUSettingsT>();

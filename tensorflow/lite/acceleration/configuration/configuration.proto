@@ -99,6 +99,8 @@ enum Delegate {
   CORE_ML = 7;
   // Arm NN Delegate.
   ARMNN = 8;
+  // MediaTek Neuron Delegate.
+  MTK_NEURON = 9;
 }
 
 enum NNAPIExecutionPreference {
@@ -664,6 +666,84 @@ message ArmNNSettings {
   optional string additional_parameters = 3;
 }
 
+// MediaTek Neuron Delegate Settings.
+// See https://neuropilot.mediatek.com/ for more information.
+message MtkNeuronSettings {
+  enum ExecutionPreference {
+    PREFERENCE_UNDEFINED = 0;
+    PREFERENCE_LOW_POWER = 1;
+    PREFERENCE_FAST_SINGLE_ANSWER = 2;
+    PREFERENCE_SUSTAINED_SPEED = 3;
+    PREFERENCE_TURBO_BOOST = 4;
+  }
+
+  enum ExecutionPriority {
+    PRIORITY_UNDEFINED = 0;
+    PRIORITY_LOW = 90;
+    PRIORITY_MEDIUM = 100;
+    PRIORITY_HIGH = 110;
+  }
+
+  // Bitwise flags.
+  enum OptimizationHint {
+    OPTIMIZATION_NONE = 0;
+    OPTIMIZATION_LOW_LATENCY = 1;
+    OPTIMIZATION_DEEP_FUSION = 2;
+    OPTIMIZATION_BATCH_PROCESSOR = 4;
+  }
+
+  enum OperationCheckMode {
+    NO_OPERATION_CHECK = 0;
+
+    // Checks each node separately with multiple queries to the backend.
+    PER_NODE_OPERATION_CHECK = 1;
+
+    // Checks all nodes in the graph at once with a batched query to the
+    // backend.
+    PRE_OPERATION_CHECK = 2;
+  }
+
+  // The preferred execution mode. The system-wide default will be used when
+  // PREFERENCE_UNDEFINED is passed to the delegate.
+  optional ExecutionPreference execution_preference = 1;
+
+  // The execution priority of the inference request. The system-wide default
+  // will be used when PRIORITY_UNDEFINED is passed to the delegate.
+  optional ExecutionPriority execution_priority = 2;
+
+  // The optimization hints composed of bitwise flags defined by the
+  // OptimizationHint enum.
+  optional uint32 optimization_hint = 3;
+
+  // Whether and how to check the operator compatibility with the underlying
+  // accelerator.
+  optional OperationCheckMode operation_check_mode = 4;
+
+  // Whether to allow the accelerator to optionally use lower-precision FP16
+  // arithmetic when performing calculations on FP32 data.
+  optional bool allow_fp16 = 5;
+
+  // Whether to use AHardwareBuffer_* API to manage buffers.
+  optional bool use_ahwb = 6;
+
+  // Whether to use cachable (consistent / coherent) memory. This will affect
+  // both buffer allocation and buffer importing behaviors.
+  optional bool use_cacheable_buffer = 7 [default = true];
+
+  // Extra options for the Neuron compiler, such as "--opt 3".
+  // See docs at https://neuropilot.mediatek.com/ for available options.
+  optional string compile_options = 8;
+
+  // Optional comma-separated list of target accelerator device names.
+  // If empty, the delegate will automatically select the accelerator.
+  // See docs at https://neuropilot.mediatek.com/ for available accelerators.
+  optional string accelerator_name = 9;
+
+  // Optional path to the platform-dependent Neuron configuration file.
+  // See docs at https://neuropilot.mediatek.com/ for more details.
+  optional string neuron_config_path = 10;
+}
+
 // How to configure TFLite.
 message TFLiteSettings {
   // Which delegate to use.
@@ -721,6 +801,9 @@ message TFLiteSettings {
 
   // For configuring the Arm NN delegate.
   optional ArmNNSettings armnn_settings = 16;
+
+  // For configuring MediaTek Neuron delegate.
+  optional MtkNeuronSettings mtk_neuron_settings = 17;
 }
 
 // Whether to automatically fallback to TFLite CPU path on delegation errors.

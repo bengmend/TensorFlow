@@ -57,6 +57,8 @@ proto::Delegate ConvertDelegate(Delegate delegate) {
       return proto::Delegate::CORE_ML;
     case Delegate_ARMNN:
       return proto::Delegate::ARMNN;
+    case Delegate_MTK_NEURON:
+      return proto::Delegate::MTK_NEURON;
   }
   TFLITE_LOG_PROD(TFLITE_LOG_ERROR, "Unexpected value for Delegate: %d",
                   delegate);
@@ -423,6 +425,34 @@ proto::CompilationCachingSettings ConvertCompilationCachingSettings(
   return proto_settings;
 }
 
+proto::MtkNeuronSettings ConvertMtkNeuronSettings(
+    const MtkNeuronSettings& settings) {
+  proto::MtkNeuronSettings proto_settings;
+  proto_settings.set_execution_preference(
+      static_cast<proto::MtkNeuronSettings_ExecutionPreference>(
+          settings.execution_preference()));
+  proto_settings.set_execution_priority(
+      static_cast<proto::MtkNeuronSettings_ExecutionPriority>(
+          settings.execution_priority()));
+  proto_settings.set_optimization_hint(settings.optimization_hint());
+  proto_settings.set_operation_check_mode(
+      static_cast<proto::MtkNeuronSettings_OperationCheckMode>(
+          settings.operation_check_mode()));
+  proto_settings.set_allow_fp16(settings.allow_fp16());
+  proto_settings.set_use_ahwb(settings.use_ahwb());
+  proto_settings.set_use_cacheable_buffer(settings.use_cacheable_buffer());
+  if (settings.compile_options() != nullptr) {
+    proto_settings.set_compile_options(settings.compile_options()->str());
+  }
+  if (settings.accelerator_name() != nullptr) {
+    proto_settings.set_accelerator_name(settings.accelerator_name()->str());
+  }
+  if (settings.neuron_config_path() != nullptr) {
+    proto_settings.set_neuron_config_path(settings.neuron_config_path()->str());
+  }
+  return proto_settings;
+}
+
 proto::TFLiteSettings ConvertTfliteSettings(const TFLiteSettings& settings) {
   proto::TFLiteSettings proto_settings;
   proto_settings.set_delegate(ConvertDelegate(settings.delegate()));
@@ -488,6 +518,11 @@ proto::TFLiteSettings ConvertTfliteSettings(const TFLiteSettings& settings) {
     *proto_settings.mutable_compilation_caching_settings() =
         ConvertCompilationCachingSettings(
             *settings.compilation_caching_settings());
+  }
+
+  if (settings.mtk_neuron_settings() != nullptr) {
+    *proto_settings.mutable_mtk_neuron_settings() =
+        ConvertMtkNeuronSettings(*settings.mtk_neuron_settings());
   }
 
   return proto_settings;
