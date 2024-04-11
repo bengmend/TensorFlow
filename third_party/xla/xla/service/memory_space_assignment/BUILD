@@ -184,7 +184,11 @@ cc_library(
     deps = [
         ":memory_space_assignment_proto_cc",
         "//xla:shape_util",
+        "//xla/service:time_utils",
         "//xla/service/heap_simulator",
+        "@com_google_absl//absl/functional:any_invocable",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
     ],
 )
