@@ -152,8 +152,6 @@ void PopulateOpMetricsNode(
     const OpMetrics& op_metrics, double peak_gigaflops_per_second_per_core,
     std::vector<double> peak_mem_gibibytes_per_second_per_core,
     uint64_t total_time_ps, Node* node) {
-  DCHECK_EQ(ChildrenTimePs(op_metrics), 0);
-
   // TODO(dfinchel): remove this temporary change to avoid crash.
   // This is only needed while we make an update to proto version that is not
   // backwards compatible.
@@ -230,6 +228,10 @@ void PopulateOpMetricsNode(
 void SetTotalTime(uint64_t total_time_ps, Node* root) {
   Metrics* metrics = root->mutable_metrics();
   metrics->set_raw_time(total_time_ps);
+}
+
+void SetRootOpMericsTotalTime(uint64_t total_time_ps, OpMetrics* op_metrics) {
+  op_metrics->set_time_ps(total_time_ps);
 }
 
 // Recursively insert "fused instruction" nodes (with raw flops).
@@ -309,26 +311,48 @@ OpProfileBuilder::Program* OpProfileBuilder::LookupOrAddProgramNode(
 }
 
 void OpProfileBuilder::AddOp(const OpMetrics& op_metrics) {
-  // Exclude ops with children ops to avoid double counting of flops, bytes and
-  // time from children ops.
-  if (ChildrenTimePs(op_metrics) > 0) return;
-
-  // The path from the root to the leaf node:
-  // e.g. by_program -> cluster_xx -> convolution -> convolution.1 and its
-  // deduplicates -> convolution.1
-  // We will aggregate the metrics of convolution.1 to all its parent nodes.
+  /**
+   * The path from the root to the leaf node:
+   * 1. by_program
+   * by_program(root) -> hlo_program -> op_category -> op deduplictes group ->
+   * op in the deduplicate group or by_program -> hlo_program -> op_category ->
+   * op (with no deduplicates) e.g. by_program -> cluster_xx -> convolution ->
+   * convolution.1 and its deduplicates -> convolution.1
+   * 2. by_category
+   * by_category(root) -> op_category -> op deduplictes group -> op in the
+   * deduplicate group or by_category(root) -> op_category -> op (with no
+   * deduplicates) e.g. by_category -> convolution -> convolution.1
+   *
+   * How the op profile metrics are calculated:
+   * 1. For parent node in the nested structure like root node
+   * (by_program/by_category) or program node
+   * - time_ps will be accumulated from the self_time of all op nodes under it
+   * (might still be off a bit if the parent node has self_time itself)
+   * - flops and memory access will only be accumulated from leaf op node under
+   * it to avoid double counting
+   * - unable to get occurrences number now
+   * 2. For conceptual horizontal grouping node (op_category, deduplicated)
+   * - all op_metris fields will be accumulated from leaf op node only in the
+   * group, to avoid double counting
+   */
   std::vector<Node*> all_paths = {root_};
+  // op_metrics.time_ps in root node will be reset to total_time_ps later
+  PropagateOpMetricsUp(op_metrics, &metrics_[root_]);
+
+  Program* program = nullptr;
+  if (!IsIdleOp(op_metrics) && options_.group_by_program) {
+    program = LookupOrAddProgramNode(op_metrics);
+    PropagateOpMetricsUp(op_metrics, &metrics_[program->node]);
+  }
+  if (ChildrenTimePs(op_metrics) > 0) return;
 
   if (IsIdleOp(op_metrics)) {
     Node* leaf = AddOpNode(op_metrics);
     all_paths.push_back(leaf);
   } else {
-    Program* program = nullptr;
     if (options_.group_by_program) {
-      program = LookupOrAddProgramNode(op_metrics);
       all_paths.push_back(program->node);
     }
-
     Category* category = LookupOrAddCategoryNode(op_metrics, program);
     all_paths.push_back(category->node);
 
@@ -343,9 +367,31 @@ void OpProfileBuilder::AddOp(const OpMetrics& op_metrics) {
     all_paths.push_back(leaf);
   }
 
-  for (auto* node : all_paths) {
+  for (int i = 1; i < all_paths.size(); ++i) {
+    auto* node = all_paths[i];
+    // Skip root and program node metrics propagation, which is handled earlier
+    if (!IsIdleOp(op_metrics) && options_.group_by_program && i == 1) {
+      continue;
+    }
     // Per program combiner does not need to update OpMetrics.num_cores
     CombineOpMetrics(op_metrics, &metrics_[node], /*update_num_cores=*/false);
+  }
+}
+
+void OpProfileBuilder::PropagateOpMetricsUp(const OpMetrics& child,
+                                            OpMetrics* parent) {
+  DCHECK(parent != nullptr);
+  parent->set_time_ps(child.self_time_ps() + parent->time_ps());
+  // TODO(b/333608397): add occurrences for parent/module executions
+  // could not get this information from op_stats now
+  if (ChildrenTimePs(child) == 0) {
+    parent->set_flops(child.flops() + parent->flops());
+    parent->set_model_flops(child.model_flops() + parent->model_flops());
+    parent->set_bytes_accessed(child.bytes_accessed() +
+                               parent->bytes_accessed());
+    parent->set_dma_stall_ps(child.dma_stall_ps() + parent->dma_stall_ps());
+    CombineMemoryAccessedBreakdown(child.memory_accessed_breakdown(),
+                                   parent->mutable_memory_accessed_breakdown());
   }
 }
 
@@ -353,12 +399,17 @@ void OpProfileBuilder::Finalize(
     double peak_gigaflops_per_second_per_core,
     std::vector<double> peak_mem_gibibytes_per_second_per_core,
     uint64_t total_time_ps) {
+  // Call to `PopulateOpMetricsNode` dependents on node time_ps to calculate
+  // flops, bandwidth_utils..etc. The root / program node time_ps might
+  // not be precisely captured from previous code, this is best effort to at
+  // least reset root node time_ps to be accurate total_time_ps.
+  // And make sure time_fraction used here and on frontend is consistent.
+  SetRootOpMericsTotalTime(total_time_ps, &metrics_[root_]);
   for (const auto& [node, op_metrics] : metrics_) {
     PopulateOpMetricsNode(op_metrics, peak_gigaflops_per_second_per_core,
                           peak_mem_gibibytes_per_second_per_core, total_time_ps,
                           node);
   }
-  SetTotalTime(total_time_ps, root_);
   // If grouping by program, we build a two-level pruned tree: the first level
   // is per program and the second level is per category. Otherwise we build a
   // single-level per category pruned tree.

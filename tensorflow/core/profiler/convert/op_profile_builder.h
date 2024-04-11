@@ -47,6 +47,8 @@ class OpProfileBuilder {
                 std::vector<double> peak_mem_gibibytes_per_second_per_core,
                 uint64_t total_time_ps);
 
+  void PropagateOpMetricsUp(const OpMetrics& child, OpMetrics* parent);
+
  private:
   struct Category {
     op_profile::Node* node;
@@ -85,6 +87,9 @@ class OpProfileBuilder {
   // Returns a node for op_metrics.hlo_module_id().
   // Adds a node to the Node tree if necessary.
   Program* LookupOrAddProgramNode(const OpMetrics& op_metrics);
+
+  // Returns a node matching for the op_name in op_metrics
+  op_profile::Node* LookupNode(const OpMetrics& op_metrics);
 
   OpProfileOptions options_;
   op_profile::Node* root_;
