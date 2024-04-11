@@ -23,9 +23,25 @@ limitations under the License.
 
 #include "mlir/IR/Builders.h"  // from @llvm-project
 #include "mlir/IR/BuiltinAttributes.h"  // from @llvm-project
+#include "mlir/IR/BuiltinTypeInterfaces.h"  // from @llvm-project
+#include "mlir/IR/PatternMatch.h"  // from @llvm-project
+#include "mlir/IR/Value.h"  // from @llvm-project
 
 namespace mlir {
 namespace odml {
+
+// Changes a DenseIntElementsAttr **containing I64** elements to an I32
+// DenseIntElementsAttr.
+DenseIntElementsAttr DenseI64AttrToI32Attr(
+    const DenseIntElementsAttr& dense_attr, PatternRewriter& builder) {
+  std::vector<int32_t> ret(dense_attr.getNumElements());
+  auto range = dense_attr.getValues<int64_t>();
+  std::transform(range.begin(), range.end(), ret.begin(),
+                 [](int64_t attr) { return static_cast<int32_t>(attr); });
+  return DenseIntElementsAttr::get(
+      RankedTensorType::get(ret.size(), builder.getIntegerType(32)), ret);
+}
+
 // Changes a DenseIntElementsAttr **containing I64** elements to an I32 Vector.
 bool DenseI64AttrToI32Vector(const DenseIntElementsAttr& dense_attr,
                              std::vector<int32_t>* out_vec) {
@@ -47,6 +63,24 @@ bool GetI32VectorFromDenseI64CompositeAttr(
   }
 
   return DenseI64AttrToI32Vector(attr, out_vec);
+}
+
+// Returns true if the given `input` and `output` are NCHW layout.
+bool IsNCHWInterpolateBilinear(Value input, Value output,
+                               const DenseIntElementsAttr& output_size_attr) {
+  auto input_shape = input.getType().cast<ShapedType>().getShape();
+  auto output_shape = output.getType().cast<ShapedType>().getShape();
+  if (input_shape.size() != 4 || output_shape.size() != 4) {
+    return false;
+  }
+  if (input_shape[0] != output_shape[0] || input_shape[1] != output_shape[1]) {
+    return false;
+  }
+  if (output_size_attr.getNumElements() != 2) {
+    return false;
+  }
+  auto output_size = output_size_attr.getValues<int64_t>();
+  return output_size[0] == output_shape[2] && output_size[1] == output_shape[3];
 }
 }  // namespace odml
 }  // namespace mlir

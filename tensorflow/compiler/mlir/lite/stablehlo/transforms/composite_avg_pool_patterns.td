@@ -14,7 +14,9 @@ limitations under the License.
 ==============================================================================*/
 
 include "mlir/IR/PatternBase.td"
+#ifndef COMPOSITE_UTILS_TD
 include "tensorflow/compiler/mlir/lite/stablehlo/transforms/composite_utils.td"
+#endif
 
 // See the function doc in the header file.
 def GetAvgPoolReturnType: NativeCodeCall<

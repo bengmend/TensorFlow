@@ -19,7 +19,9 @@ include "mlir/Dialect/Arith/IR/ArithOps.td"
 include "mlir/Dialect/Func/IR/FuncOps.td"
 include "mhlo/IR/hlo_ops.td"
 include "tensorflow/compiler/mlir/lite/ir/tfl_ops.td"
-
+#ifndef COMPOSITE_UTILS_TD
+include "tensorflow/compiler/mlir/lite/stablehlo/transforms/composite_utils.td"
+#endif
 include "tensorflow/compiler/mlir/lite/stablehlo/transforms/composite_avg_pool_patterns.td"
 
 def LegalizeHardSwishComposite: Pat<
@@ -27,3 +29,30 @@ def LegalizeHardSwishComposite: Pat<
                     (variadic $input),
                     ConstantStrAttr<StrAttr, "aten.hardswish.default">, $_, $_, $_),
                     (TFL_HardSwishOp $input)>;
+
+def LegalizeNCHWInterpolateBilinearComposite: Pat<
+                    (MHLO_CompositeOp:$old_val
+                    (variadic $input),
+                    ConstantStrAttr<StrAttr, "odml.upsample_bilinear2d">, $attrs, $_, $_),
+                    (TFL_TransposeOp
+                        (TFL_ResizeBilinearOp
+                            (TFL_TransposeOp $input,
+                                (Arith_ConstantOp
+                                    ConstantAttr<RankedI32ElementsAttr<[4]>,"{0, 2, 3, 1}">)),
+                            (Arith_ConstantOp:$output_size (GetI32DenseAttr (GetAsVectorAttr<"output"> $attrs))),
+                            (GetCompositeAttributeAs<"align_corners", "BoolAttr"> $attrs),
+                            ConstBoolAttrFalse,
+                            (returnType (GetAvgPoolReturnType $old_val))),
+                        (Arith_ConstantOp
+                            ConstantAttr<RankedI32ElementsAttr<[4]>,"{0, 3, 1, 2}">)),
+                    [(IsNCHWInterpolateBilinear $input, $old_val, $attrs)]>;
+
+def LegalizeNHWCInterpolateBilinearComposite: Pat<
+                    (MHLO_CompositeOp:$old_val
+                    (variadic $input),
+                    ConstantStrAttr<StrAttr, "odml.upsample_bilinear2d">, $attrs, $_, $_),
+                    (TFL_ResizeBilinearOp $input,
+                        (Arith_ConstantOp (GetI32DenseAttr (GetAsVectorAttr<"output"> $attrs))),
+                        (GetCompositeAttributeAs<"align_corners", "BoolAttr"> $attrs),
+                        ConstBoolAttrFalse),
+                    [(IsNHWCInterpolateBilinear $input, $old_val, $attrs)]>;
